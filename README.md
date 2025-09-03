@@ -10,6 +10,50 @@ This application has been built with:
 - [Pest PHP](https://pestphp.com/).
 - [Vite](https://vite.dev/).
 
+## To test this application
+
+### Prerequisites
+- PHP 8.2+ installed
+- Composer installed
+- Node.js and npm installed
+
+### Setup
+1. Clone the repository and navigate to the project directory
+2. Install PHP dependencies:
+    ```bash
+    composer install
+    ```
+3. Install JavaScript dependencies:
+    ```bash
+    npm install
+    ```
+4. Copy the environment file:
+    ```bash
+    cp .env.example .env
+    ```
+5. Generate an application key:
+    ```bash
+    php artisan key:generate
+    ```
+6. Build the frontend assets:
+    ```bash
+    npm run build
+    ```
+### Running Tests
+To run the tests:
+
+    ./vendor/bin/pest
+
+### Manual Testing
+
+1. Visit http://localhost in your browser (maybe different depending on how you view laravel applications locally)
+2. Upload the provided example.csv file (located in the project root) using the upload form
+Verify that the parsed homeowner data is displayed correctly below the upload form
+3. The example.csv file contains various test cases including:
+    - Single homeowners
+    - Multiple people on the same row
+    - Different title formats
+
 ## How the application works
 This application works by allowing the user to upload a CSV file on the frontend. When the user uploads a CSV file, we send a POST request to Laravel with the file. Laravel does validation to make sure that a CSV file has been uploaded, and if so, it will pass the file into a service (LocalHomeownerParserService). Inside the service, the file is read and starts to loop through each row within the file.
 
