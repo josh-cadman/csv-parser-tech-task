@@ -1,5 +1,5 @@
 <template>
-    <div class="max-w-md mx-auto mt-8 p-6 bg-white rounded-lg shadow-md">
+    <div class="max-w-lg mx-auto mt-8 p-6 bg-white rounded-lg shadow-md">
         <h2 class="text-xl font-semibold mb-4">Upload CSV File</h2>
 
         <form @submit.prevent="submitFile" class="space-y-4">
@@ -27,9 +27,10 @@
         </form>
 
         <!-- Show output after the CSV has been parsed -->
-        <div v-if="page.props.output && page.props.output.length > 0">
+        <div v-if="page.props.output && page.props.output.length > 0" class="mt-8">
+            <h3 class="text-lg">Output:</h3>
             <ul>
-                <li v-for="(output, index) in page.props.output" :key="index">
+                <li v-for="(output, index) in page.props.output" :key="index" class="py-2">
                     <ul>
                         <li v-if="output.title">Title: {{ output.title }}</li>
                         <li v-if="output.first_name">First Name: {{ output.first_name }}</li>
