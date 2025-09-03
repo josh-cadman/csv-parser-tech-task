@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Interfaces\HomeownerParserInterface;
+use App\Services\LocalHomeownerParserService;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +21,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Bind the Homeowner Parser Interface with the local service
+        $this->app->bind(HomeownerParserInterface::class, LocalHomeownerParserService::class);
     }
 }
