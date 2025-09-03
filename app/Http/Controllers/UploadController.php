@@ -9,6 +9,7 @@ class UploadController extends Controller
 {
     public function index(): Response
     {
-        return Inertia::render('Upload/index');
+        return Inertia::render('index');
+    }
     }
 }
