@@ -62,3 +62,13 @@ it('uploads a CSV file and returns parsed results', function () {
             ->where('output.1.last_name', 'Smith')
         );
 });
+
+it('validates a CSV file when uploading a file', function () {
+    // Create a fake txt file
+    $txtFile = UploadedFile::fake()->create('test.txt', 100);
+
+    // Send a post request with the txt file and check an error has been returned for the file
+    $this->post('/', ['file' => $txtFile])
+        ->assertRedirect('/')
+        ->assertSessionHasErrors('file');
+});
