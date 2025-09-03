@@ -10,7 +10,7 @@ class LocalHomeownerParserService implements HomeownerParserInterface
     // Array of titles to search for
     private array $titles = [
         'Mr', 'Mrs', 'Ms', 'Miss', 'Dr', 'Prof', 'Professor',
-        'Mister', 'Mistress', 'Master'
+        'Mister', 'Mistress', 'Master',
     ];
 
     // Array of different separator between names
@@ -31,7 +31,7 @@ class LocalHomeownerParserService implements HomeownerParserInterface
 
         // Loop through the CSV and pass each row into a method to parse the string
         while (($row = fgetcsv($handle)) !== false) {
-            if (!empty($row[0])) {
+            if (! empty($row[0])) {
                 $parsedPeople = $this->parseHomeownerString(trim($row[0]));
 
                 // Add the parsed home owner to the people array
@@ -77,8 +77,8 @@ class LocalHomeownerParserService implements HomeownerParserInterface
      */
     private function buildMultiplePeoplePattern(): string
     {
-        $titlePattern = '(' . implode('|', array_map('preg_quote', $this->titles)) . ')';
-        $conjunctionPattern = '(' . implode('|', array_map('preg_quote', $this->conjunctions)) . ')';
+        $titlePattern = '('.implode('|', array_map('preg_quote', $this->titles)).')';
+        $conjunctionPattern = '('.implode('|', array_map('preg_quote', $this->conjunctions)).')';
 
         // Pattern: Title ... conjunction ... Title OR conjunction ... Title
         return "/{$titlePattern}.*?{$conjunctionPattern}.*?({$titlePattern}|(?:{$conjunctionPattern}\s+(?!.*{$titlePattern})))/i";
@@ -140,7 +140,7 @@ class LocalHomeownerParserService implements HomeownerParserInterface
 
                 foreach ($parts as $part) {
                     $part = trim($part);
-                    if (!empty($part)) {
+                    if (! empty($part)) {
                         $person = $this->parseSinglePerson($part);
                         if ($person) {
                             $people[] = $person;
@@ -168,7 +168,7 @@ class LocalHomeownerParserService implements HomeownerParserInterface
                 'title' => $this->normaliseTitle($words[0]),
                 'first_name' => null,
                 'initial' => null,
-                'last_name' => $firstPerson['last_name'] ?? null
+                'last_name' => $firstPerson['last_name'] ?? null,
             ];
         }
 
@@ -193,7 +193,7 @@ class LocalHomeownerParserService implements HomeownerParserInterface
             'title' => null,
             'first_name' => null,
             'initial' => null,
-            'last_name' => null
+            'last_name' => null,
         ];
 
         $wordIndex = 0;
@@ -205,13 +205,14 @@ class LocalHomeownerParserService implements HomeownerParserInterface
         }
 
         // Need at least one more word for last name
-        if (!isset($words[$wordIndex])) {
+        if (! isset($words[$wordIndex])) {
             return null;
         }
 
         // If only one word left, it's the last name
         if (count($words) === $wordIndex + 1) {
             $person['last_name'] = $words[$wordIndex];
+
             return $person;
         }
 
@@ -253,6 +254,7 @@ class LocalHomeownerParserService implements HomeownerParserInterface
     private function isInitial(string $word): bool
     {
         $word = rtrim($word, '.');
+
         return strlen($word) === 1 && ctype_alpha($word);
     }
 
@@ -268,7 +270,7 @@ class LocalHomeownerParserService implements HomeownerParserInterface
         $specialCases = [
             'Mister' => 'Mr',
             'Mistress' => 'Mrs',
-            'Professor' => 'Prof'
+            'Professor' => 'Prof',
         ];
 
         return $specialCases[$normalised] ?? $normalised;
@@ -280,7 +282,7 @@ class HomeownerParserTest
 {
     public static function runTests(): void
     {
-        $parser = new HomeownerParser();
+        $parser = new HomeownerParser;
 
         $testCases = [
             'Mr John Smith',
@@ -297,7 +299,7 @@ class HomeownerParserTest
             'Ms Claire Robbo',
             'Prof Alex Brogan',
             'Mrs Faye Hughes-Eastwood',
-            'Mr F. Fredrickson'
+            'Mr F. Fredrickson',
         ];
 
         foreach ($testCases as $testCase) {
@@ -305,9 +307,9 @@ class HomeownerParserTest
             $results = $parser->parseHomeownerString($testCase);
 
             foreach ($results as $i => $person) {
-                echo "Person " . ($i + 1) . ":\n";
+                echo 'Person '.($i + 1).":\n";
                 foreach ($person as $key => $value) {
-                    echo "  {$key} => " . ($value ?? 'null') . "\n";
+                    echo "  {$key} => ".($value ?? 'null')."\n";
                 }
             }
             echo "\n";

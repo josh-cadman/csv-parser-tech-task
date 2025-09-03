@@ -23,14 +23,14 @@ it('uploads a CSV file and returns parsed results', function () {
             'title' => 'Mr',
             'first_name' => 'John',
             'initial' => 'A',
-            'last_name' => 'Doe'
+            'last_name' => 'Doe',
         ],
         [
             'title' => 'Mrs',
             'first_name' => 'Jane',
             'initial' => 'B',
-            'last_name' => 'Smith'
-        ]
+            'last_name' => 'Smith',
+        ],
     ];
 
     // Expect the parseCsvFile method to be called once and return the expected results

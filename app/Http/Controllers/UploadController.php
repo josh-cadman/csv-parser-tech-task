@@ -9,8 +9,7 @@ use Inertia\Response;
 
 class UploadController extends Controller
 {
-    public function __construct(protected HomeownerParserInterface $homeownerInterface)
-    {}
+    public function __construct(protected HomeownerParserInterface $homeownerInterface) {}
 
     public function index(): Response
     {
@@ -20,13 +19,13 @@ class UploadController extends Controller
     public function store(Request $request): Response
     {
         $request->validate([
-            'file' => 'required|file|mimes:csv'
+            'file' => 'required|file|mimes:csv',
         ]);
 
         $parseResults = $this->homeownerInterface->parseCsvFile($request->file('file'));
 
         return Inertia::render('index', [
-            'output' => $parseResults
+            'output' => $parseResults,
         ]);
     }
 }
