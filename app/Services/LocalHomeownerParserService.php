@@ -22,28 +22,28 @@ class LocalHomeownerParserService implements HomeownerParserInterface
     public function parseCsvFile(UploadedFile $file): array
     {
         $people = [];
-
-        // Open the file
         $handle = fopen($file, 'r');
 
-        // Skip header row if exists
-        fgetcsv($handle);
+        $this->skipHeaderRow($handle);
 
-        // Loop through the CSV and pass each row into a method to parse the string
         while (($row = fgetcsv($handle)) !== false) {
             if (! empty($row[0])) {
                 $parsedPeople = $this->parseHomeownerString(trim($row[0]));
-
-                // Add the parsed home owner to the people array
                 $people = array_merge($people, $parsedPeople);
             }
         }
 
-        // Close the file
         fclose($handle);
 
-        // Return an array of the people
         return $people;
+    }
+
+    /**
+     * Skip the header row in CSV file
+     */
+    private function skipHeaderRow($handle): void
+    {
+        fgetcsv($handle);
     }
 
     /**
@@ -51,37 +51,66 @@ class LocalHomeownerParserService implements HomeownerParserInterface
      */
     public function parseHomeownerString(string $homeownerString): array
     {
-        $people = [];
+        $cleanedString = $this->cleanupInputString($homeownerString);
 
-        // Clean up the string
-        $homeownerString = trim($homeownerString);
-
-        // Remove extra spaces
-        $homeownerString = preg_replace('/\s+/', ' ', $homeownerString);
-
-        // Check for multiple people using conjunctions
-        $multiplePeoplePattern = $this->buildMultiplePeoplePattern();
-
-        if (preg_match($multiplePeoplePattern, $homeownerString, $matches)) {
-            $people = $this->parseMultiplePeople($homeownerString);
-        } else {
-            $people[] = $this->parseSinglePerson($homeownerString);
+        if ($this->detectsMultiplePeople($cleanedString)) {
+            return $this->parseMultiplePeople($cleanedString);
         }
 
-        // Remove any null results
-        return array_filter($people);
+        $singlePerson = $this->parseSinglePerson($cleanedString);
+
+        return $singlePerson ? [$singlePerson] : [];
+    }
+
+    /**
+     * Clean up and normalise input string
+     */
+    private function cleanupInputString(string $input): string
+    {
+        $cleaned = trim($input);
+
+        return preg_replace('/\s+/', ' ', $cleaned); // Remove extra spaces
+    }
+
+    /**
+     * Detect if string contains multiple people using regex pattern
+     */
+    private function detectsMultiplePeople(string $homeownerString): bool
+    {
+        $pattern = $this->getMultiplePeopleRegexPattern();
+
+        return (bool) preg_match($pattern, $homeownerString);
     }
 
     /**
      * Build regex pattern to detect multiple people
      */
-    private function buildMultiplePeoplePattern(): string
+    private function getMultiplePeopleRegexPattern(): string
     {
-        $titlePattern = '('.implode('|', array_map('preg_quote', $this->titles)).')';
-        $conjunctionPattern = '('.implode('|', array_map('preg_quote', $this->conjunctions)).')';
+        $titlePattern = $this->getTitleRegexPattern();
+        $conjunctionPattern = $this->getConjunctionRegexPattern();
 
-        // Pattern: Title ... conjunction ... Title OR conjunction ... Title
         return "/{$titlePattern}.*?{$conjunctionPattern}.*?({$titlePattern}|(?:{$conjunctionPattern}\s+(?!.*{$titlePattern})))/i";
+    }
+
+    /**
+     * Get regex pattern for matching titles
+     */
+    private function getTitleRegexPattern(): string
+    {
+        $quotedTitles = array_map('preg_quote', $this->titles);
+
+        return '('.implode('|', $quotedTitles).')';
+    }
+
+    /**
+     * Get regex pattern for matching conjunctions
+     */
+    private function getConjunctionRegexPattern(): string
+    {
+        $quotedConjunctions = array_map('preg_quote', $this->conjunctions);
+
+        return '('.implode('|', $quotedConjunctions).')';
     }
 
     /**
@@ -89,184 +118,277 @@ class LocalHomeownerParserService implements HomeownerParserInterface
      */
     private function parseMultiplePeople(string $homeownerString): array
     {
-        $people = [];
+        $conjunction = $this->findConjunctionInString($homeownerString);
 
-        // Handle cases like "Mr & Mrs Smith" or "Mr and Mrs Smith"
-        foreach ($this->conjunctions as $conjunction) {
-            $pattern = "/\b{$conjunction}\b/i";
-            if (preg_match($pattern, $homeownerString)) {
-                $parts = preg_split($pattern, $homeownerString, -1, PREG_SPLIT_NO_EMPTY);
-
-                if (count($parts) === 2) {
-                    $firstPart = trim($parts[0]);
-                    $secondPart = trim($parts[1]);
-
-                    // Parse first person
-                    $firstPerson = $this->parseSinglePerson($firstPart);
-                    if ($firstPerson) {
-                        $people[] = $firstPerson;
-                    }
-
-                    // Handle second part - might just be a title without last name
-                    $secondPerson = $this->parseSecondPerson($secondPart, $firstPerson);
-                    if ($secondPerson) {
-                        $people[] = $secondPerson;
-                    }
-                }
-                break; // Stop after finding the first conjunction
-            }
+        if (! $conjunction) {
+            return [];
         }
 
-        // Handle complex cases like "Mr Tom Staff and Mr John Doe"
-        if (empty($people)) {
-            $people = $this->parseComplexMultiplePeople($homeownerString);
+        $parts = $this->splitStringByConjunction($homeownerString, $conjunction);
+
+        if (count($parts) === 2) {
+            return $this->parseTwoPeopleParts(trim($parts[0]), trim($parts[1]));
         }
 
-        return $people;
+        return $this->parseMultipleCompletePeople($parts);
     }
 
     /**
-     * Parse complex cases with multiple full names
+     * Find which conjunction is used in the string
      */
-    private function parseComplexMultiplePeople(string $homeownerString): array
+    private function findConjunctionInString(string $text): ?string
     {
-        $people = [];
-
-        // Split by conjunctions and try to parse each part as a complete person
         foreach ($this->conjunctions as $conjunction) {
-            $pattern = "/\b{$conjunction}\b/i";
-            if (preg_match($pattern, $homeownerString)) {
-                $parts = preg_split($pattern, $homeownerString, -1, PREG_SPLIT_NO_EMPTY);
-
-                foreach ($parts as $part) {
-                    $part = trim($part);
-                    if (! empty($part)) {
-                        $person = $this->parseSinglePerson($part);
-                        if ($person) {
-                            $people[] = $person;
-                        }
-                    }
-                }
-                break;
+            $pattern = "/\b".preg_quote($conjunction)."\b/i";
+            if (preg_match($pattern, $text)) {
+                return $conjunction;
             }
         }
 
-        return $people;
+        return null;
     }
 
     /**
-     * Parse the second person in a conjunction, inheriting last name if needed
+     * Split string by conjunction
      */
-    private function parseSecondPerson(string $secondPart, ?array $firstPerson): ?array
+    private function splitStringByConjunction(string $text, string $conjunction): array
     {
-        // If second part is just a title (like "Mrs" in "Mr & Mrs Smith")
-        $words = explode(' ', $secondPart);
+        $pattern = "/\b".preg_quote($conjunction)."\b/i";
 
-        if (count($words) === 1 && $this->isTitle($words[0])) {
-            // Just a title, inherit last name from first person
-            return [
-                'title' => $this->normaliseTitle($words[0]),
-                'first_name' => null,
-                'initial' => null,
-                'last_name' => $firstPerson['last_name'] ?? null,
-            ];
+        return preg_split($pattern, $text, -1, PREG_SPLIT_NO_EMPTY);
+    }
+
+    /**
+     * Parse two people parts (handles cases like "Mr & Mrs Smith")
+     */
+    private function parseTwoPeopleParts(string $firstPart, string $secondPart): array
+    {
+        $people = [];
+
+        $firstPerson = $this->parseSinglePerson($firstPart);
+        if ($firstPerson) {
+            $people[] = $firstPerson;
         }
 
-        // Otherwise, parse as a complete person
+        $secondPerson = $this->parseSecondPersonWithInheritance($secondPart, $firstPerson);
+        if ($secondPerson) {
+            $people[] = $secondPerson;
+        }
+
+        return array_filter($people);
+    }
+
+    /**
+     * Parse multiple complete people (each with full names)
+     */
+    private function parseMultipleCompletePeople(array $parts): array
+    {
+        $people = [];
+
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if (! empty($part)) {
+                $person = $this->parseSinglePerson($part);
+                if ($person) {
+                    $people[] = $person;
+                }
+            }
+        }
+
+        return array_filter($people);
+    }
+
+    /**
+     * Parse second person, inheriting surname if only title provided
+     */
+    private function parseSecondPersonWithInheritance(string $secondPart, ?array $firstPerson): ?array
+    {
+        if ($this->containsOnlyTitle($secondPart)) {
+            return $this->createPersonWithInheritedSurname($secondPart, $firstPerson);
+        }
+
         return $this->parseSinglePerson($secondPart);
     }
 
     /**
-     * Parse a single person string
+     * Check if string contains only a title (like "Mrs" in "Mr & Mrs Smith")
+     */
+    private function containsOnlyTitle(string $part): bool
+    {
+        $words = explode(' ', $part);
+
+        return count($words) === 1 && $this->validateTitle($words[0]);
+    }
+
+    /**
+     * Create person with inherited surname from first person
+     */
+    private function createPersonWithInheritedSurname(string $titleOnly, ?array $firstPerson): ?array
+    {
+        if (! $firstPerson || empty($firstPerson['last_name'])) {
+            return null;
+        }
+
+        return [
+            'title' => $this->normaliseTitle($titleOnly),
+            'first_name' => null,
+            'initial' => null,
+            'last_name' => $firstPerson['last_name'],
+        ];
+    }
+
+    /**
+     * Parse a single person string into components
      */
     private function parseSinglePerson(string $personString): ?array
     {
-        $words = explode(' ', trim($personString));
-        $words = array_filter($words); // Remove empty elements
-        $words = array_values($words); // Reindex
+        $words = $this->extractCleanWordsFromString($personString);
 
         if (empty($words)) {
             return null;
         }
 
-        $person = [
-            'title' => null,
-            'first_name' => null,
-            'initial' => null,
-            'last_name' => null,
-        ];
+        $person = $this->initialiseEmptyPersonArray();
+        $wordIndex = $this->extractTitleFromWords($words, $person);
 
-        $wordIndex = 0;
-
-        // Extract title
-        if (isset($words[$wordIndex]) && $this->isTitle($words[$wordIndex])) {
-            $person['title'] = $this->normaliseTitle($words[$wordIndex]);
-            $wordIndex++;
+        if (! $this->hasRemainingWords($words, $wordIndex)) {
+            return null; // Need at least one more word for last name
         }
 
-        // Need at least one more word for last name
-        if (! isset($words[$wordIndex])) {
-            return null;
-        }
-
-        // If only one word left, it's the last name
-        if (count($words) === $wordIndex + 1) {
+        if ($this->isOnlyLastNameRemaining($words, $wordIndex)) {
             $person['last_name'] = $words[$wordIndex];
 
             return $person;
         }
 
-        // Check for initial (single letter with or without dot)
-        if (isset($words[$wordIndex]) && $this->isInitial($words[$wordIndex])) {
-            $person['initial'] = rtrim($words[$wordIndex], '.');
-            $wordIndex++;
-        } elseif (isset($words[$wordIndex])) {
-            // It's a first name
-            $person['first_name'] = $words[$wordIndex];
-            $wordIndex++;
+        $wordIndex = $this->extractFirstNameOrInitialFromWords($words, $wordIndex, $person);
+        $this->extractSurnameFromRemainingWords($words, $wordIndex, $person);
+
+        return $this->validatePersonHasRequiredFields($person) ? $person : null;
+    }
+
+    /**
+     * Extract clean words array from person string
+     */
+    private function extractCleanWordsFromString(string $personString): array
+    {
+        $words = explode(' ', trim($personString));
+        $words = array_filter($words); // Remove empty elements
+
+        return array_values($words); // Reindex
+    }
+
+    /**
+     * Initialise empty person array with all fields
+     */
+    private function initialiseEmptyPersonArray(): array
+    {
+        return [
+            'title' => null,
+            'first_name' => null,
+            'initial' => null,
+            'last_name' => null,
+        ];
+    }
+
+    /**
+     * Extract title from words array and return next word index
+     */
+    private function extractTitleFromWords(array $words, array &$person): int
+    {
+        if (isset($words[0]) && $this->validateTitle($words[0])) {
+            $person['title'] = $this->normaliseTitle($words[0]);
+
+            return 1;
         }
 
-        // Remaining words form the last name
+        return 0;
+    }
+
+    /**
+     * Check if there are remaining words to process
+     */
+    private function hasRemainingWords(array $words, int $currentIndex): bool
+    {
+        return isset($words[$currentIndex]);
+    }
+
+    /**
+     * Check if only one word remains (must be surname)
+     */
+    private function isOnlyLastNameRemaining(array $words, int $currentIndex): bool
+    {
+        return count($words) === $currentIndex + 1;
+    }
+
+    /**
+     * Extract first name or initial from words and return next index
+     */
+    private function extractFirstNameOrInitialFromWords(array $words, int $wordIndex, array &$person): int
+    {
+        if (! isset($words[$wordIndex])) {
+            return $wordIndex;
+        }
+
+        if ($this->validateInitial($words[$wordIndex])) {
+            $person['initial'] = $this->normaliseInitial($words[$wordIndex]);
+
+            return $wordIndex + 1;
+        }
+
+        $person['first_name'] = $words[$wordIndex];
+
+        return $wordIndex + 1;
+    }
+
+    /**
+     * Extract surname from remaining words in array
+     */
+    private function extractSurnameFromRemainingWords(array $words, int $wordIndex, array &$person): void
+    {
         if (isset($words[$wordIndex])) {
             $lastNameParts = array_slice($words, $wordIndex);
             $person['last_name'] = implode(' ', $lastNameParts);
         }
-
-        // Must have a last name
-        if (empty($person['last_name'])) {
-            return null;
-        }
-
-        return $person;
     }
 
     /**
-     * Check if a word is a title
+     * Validate that person has required fields (at minimum a surname)
      */
-    private function isTitle(string $word): bool
+    private function validatePersonHasRequiredFields(array $person): bool
     {
-        return in_array(ucfirst(strtolower(rtrim($word, '.'))), $this->titles);
+        return ! empty($person['last_name']);
     }
 
     /**
-     * Check if a word is an initial
+     * Validate if a word is a recognised title
      */
-    private function isInitial(string $word): bool
+    private function validateTitle(string $word): bool
     {
-        $word = rtrim($word, '.');
+        $cleanWord = ucfirst(strtolower(rtrim($word, '.')));
 
-        return strlen($word) === 1 && ctype_alpha($word);
+        return in_array($cleanWord, $this->titles);
     }
 
     /**
-     * Normalise title format
+     * Validate if a word is a single letter initial
+     */
+    private function validateInitial(string $word): bool
+    {
+        $cleanWord = rtrim($word, '.');
+
+        return strlen($cleanWord) === 1 && ctype_alpha($cleanWord);
+    }
+
+    /**
+     * Normalise title to standard format
      */
     private function normaliseTitle(string $title): string
     {
         $title = rtrim($title, '.');
         $normalised = ucfirst(strtolower($title));
 
-        // Handle special cases
+        // Handle special case mappings
         $specialCases = [
             'Mister' => 'Mr',
             'Mistress' => 'Mrs',
@@ -275,44 +397,12 @@ class LocalHomeownerParserService implements HomeownerParserInterface
 
         return $specialCases[$normalised] ?? $normalised;
     }
-}
 
-// Usage example and test cases
-class HomeownerParserTest
-{
-    public static function runTests(): void
+    /**
+     * Normalise initial to standard format (uppercase, no period)
+     */
+    private function normaliseInitial(string $initial): string
     {
-        $parser = new HomeownerParser;
-
-        $testCases = [
-            'Mr John Smith',
-            'Mrs Jane Smith',
-            'Mister John Doe',
-            'Mr Bob Lawblaw',
-            'Mr and Mrs Smith',
-            'Mr Craig Charles',
-            'Mr M Mackie',
-            'Mrs Jane McMaster',
-            'Mr Tom Staff and Mr John Doe',
-            'Dr P Gunn',
-            'Dr & Mrs Joe Bloggs',
-            'Ms Claire Robbo',
-            'Prof Alex Brogan',
-            'Mrs Faye Hughes-Eastwood',
-            'Mr F. Fredrickson',
-        ];
-
-        foreach ($testCases as $testCase) {
-            echo "Input: '{$testCase}'\n";
-            $results = $parser->parseHomeownerString($testCase);
-
-            foreach ($results as $i => $person) {
-                echo 'Person '.($i + 1).":\n";
-                foreach ($person as $key => $value) {
-                    echo "  {$key} => ".($value ?? 'null')."\n";
-                }
-            }
-            echo "\n";
-        }
+        return strtoupper(rtrim($initial, '.'));
     }
 }
