@@ -3,7 +3,10 @@
 namespace App\Services;
 
 use App\Interfaces\HomeownerParserInterface;
+use App\Models\Homeowner;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class LocalHomeownerParserService implements HomeownerParserInterface
 {
@@ -17,9 +20,74 @@ class LocalHomeownerParserService implements HomeownerParserInterface
     private array $conjunctions = ['and', '&', 'And'];
 
     /**
+     * Import homeowners from CSV file
+     */
+    public function importFromCsv(UploadedFile $file): array
+    {
+        DB::beginTransaction();
+
+        try {
+            $parseResults = $this->parseCsvFile($file);
+            $homeowners = $this->createHomeowners($parseResults);
+
+            DB::commit();
+
+            return [
+                'success' => true,
+                'homeowners' => $homeowners,
+                'count' => count($homeowners),
+            ];
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Create homeowners from parsed data (skip duplicates)
+     */
+    private function createHomeowners(array $parseResults): array
+    {
+        $createdHomeowners = [];
+        $skippedCount = 0;
+
+        foreach ($parseResults as $parsedData) {
+            if (! $this->isDuplicateHomeowner($parsedData)) {
+                $createdHomeowners[] = Homeowner::createFromParsedData($parsedData);
+            } else {
+                $skippedCount++;
+            }
+        }
+
+        // Log skipped duplicates for debugging
+        if ($skippedCount > 0) {
+            Log::info("Skipped {$skippedCount} duplicate homeowners during import");
+        }
+
+        return $createdHomeowners;
+    }
+
+    /**
+     * Check if homeowner already exists to prevent duplicates
+     */
+    private function isDuplicateHomeowner(array $parsedData): bool
+    {
+        return Homeowner::where('title', $parsedData['title'])
+            ->where('first_name', $parsedData['first_name'])
+            ->where('initial', $parsedData['initial'])
+            ->where('last_name', $parsedData['last_name'])
+            ->exists();
+    }
+
+    /**
      * Parse CSV file and return array of people
      */
-    public function parseCsvFile(UploadedFile $file): array
+    private function parseCsvFile(UploadedFile $file): array
     {
         $people = [];
         $handle = fopen($file, 'r');

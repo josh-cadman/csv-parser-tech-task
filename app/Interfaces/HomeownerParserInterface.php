@@ -7,5 +7,5 @@ use Illuminate\Http\UploadedFile;
 interface HomeownerParserInterface
 {
     // Method to parse through the CSV file and return an array of home owners
-    public function parseCsvFile(UploadedFile $file): array;
+    public function importFromCsv(UploadedFile $file): array;
 }
