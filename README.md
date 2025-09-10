@@ -1,76 +1,149 @@
-## Homeowner Parser
+# Homeowner Parser
 
-This is an application as part of the Street Group Tech Task, for parsing through a CSV file of home owners and returning the results.
+This application parses CSV files containing homeowner data and stores unique results in the database. It intelligently handles various name formats including single homeowners, couples, and different title variations.
 
-This application has been built with:
-- [Laravel 12](https://laravel.com/docs/12.x).
-- [Inertia JS](https://inertiajs.com/).
-- [Vue 3](https://vuejs.org/).
-- [Tailwind CSS](https://tailwindcss.com/).
-- [Pest PHP](https://pestphp.com/).
-- [Vite](https://vite.dev/).
+## Features
 
-## To test this application
+- **Smart parsing**: Detects single and multiple people per CSV row
+- **Title handling**: Supports various titles (Mr, Mrs, Ms, Dr, Prof, etc.) with normalisation
+- **Duplicate prevention**: Avoids storing duplicate homeowner records
+- **Conjunction detection**: Handles "and", "&" separators between multiple people
+- **Name inheritance**: Automatically assigns surnames to titles-only entries (e.g., "Mr & Mrs Smith")
+- **Validation**: Comprehensive input validation and error handling
+- **Transaction safety**: Database rollback on errors
 
-### Prerequisites
+## Technology Stack
+
+- [Laravel 12](https://laravel.com/docs/12.x)
+- [Inertia.js](https://inertiajs.com/)
+- [Vue 3](https://vuejs.org/)
+- [Tailwind CSS](https://tailwindcss.com/)
+- [Pest PHP](https://pestphp.com/) - Testing framework
+- [Vite](https://vite.dev/) - Build tool
+
+## Prerequisites
+
 - PHP 8.2+ installed
 - Composer installed
 - Node.js and npm installed
+- SQLite (for database)
 
-### Setup
-1. Clone the repository and navigate to the project directory
-2. Install PHP dependencies:
-    ```bash
-    composer install
-    ```
-3. Install JavaScript dependencies:
-    ```bash
-    npm install
-    ```
-4. Copy the environment file:
-    ```bash
-    cp .env.example .env
-    ```
-5. Generate an application key:
-    ```bash
-    php artisan key:generate
-    ```
-6. Build the frontend assets:
-    ```bash
-    npm run build
-    ```
-### Running Tests
-To run the tests:
+## Installation & Setup
 
-    ./vendor/bin/pest
+1. **Clone the repository**
 
-### Manual Testing
+2. **Install dependencies**
+   ```bash
+   composer install
+   npm install
+   ```
 
-1. Visit http://localhost in your browser (maybe different depending on how you view laravel applications locally)
-2. Upload the provided example.csv file (located in the project root) using the upload form
-Verify that the parsed homeowner data is displayed correctly below the upload form
-3. The example.csv file contains various test cases including:
-    - Single homeowners
-    - Multiple people on the same row
-    - Different title formats
+3. **Environment setup**
+   ```bash
+   cp .env.example .env
+   php artisan key:generate
+   ```
 
-## How the application works
-This application works by allowing the user to upload a CSV file on the frontend. When the user uploads a CSV file, we send a POST request to Laravel with the file. Laravel does validation to make sure that a CSV file has been uploaded, and if so, it will pass the file into a service (LocalHomeownerParserService). Inside the service, the file is read and starts to loop through each row within the file.
+4. **Database setup**
+   ```bash
+   touch database/database.sqlite
+   php artisan migrate
+   ```
 
-For each row, it passes the content into the `parseHomeownerString` method which removes any empty spaces and builds a regex pattern to check for multiple people in the row. It then uses the regex pattern to check if the row contains multiple people.
+5. **Build assets**
+   ```bash
+   npm run build
+   ```
 
-If it detects multi people on the same row, it will pass the row content to the `parseMultiplePeople` method which parses the first and second person from the string and returns an array of people found.
+6. **Start the development server**
+   ```bash
+   php artisan serve
+   ```
 
-If it does not detect multiple people, it will pass the content into the `parseSinglePerson` method where it will extract the data from the string and return an array of a homeowner.
+## Testing
 
-After going through each line, it will then run `array_filter` to remove any empty arrays. It will then return the array of homeowners to the UploadController, where it is passed into the Inertia component using a prop called `output`.
+### Run all tests
+```bash
+./vendor/bin/pest
+```
 
-## What I would implement if I had longer on this task
+## Manual Testing
 
-If I had longer on this task, I would make a few adjustments. These contain:
-- Error handling for malformed CSV files
-- Export functionality to download the parsed results
-- Unit tests for the regex patterns and edge cases
-- Adding a table in the database to create OR update home owners
-- Adding a screen after upload to review all home owners (with the ability to make manual adjustments to names or removing home owners)
-- Adding PHPStan for static code analysis to catch potential bugs and improve code quality
+1. Visit `http://localhost:8000` in your browser
+2. Upload the provided `example.csv` file using the upload form
+3. Verify that the parsed homeowner data displays correctly below the form
+
+### Test Cases in example.csv
+
+The example file includes various parsing scenarios:
+- **Single homeowners**: `Mr John Smith`, `Dr P Gunn`
+- **Couples**: `Mr and Mrs Smith`, `Dr & Mrs Joe Bloggs`
+- **Multiple complete names**: `Mr Tom Staff and Mr John Doe`
+- **Title variations**: `Mister John Doe` (normalises to `Mr`)
+- **Hyphenated surnames**: `Mrs Faye Hughes-Eastwood`
+- **Initials**: `Mr M Mackie`, `Mr F. Fredrickson`
+
+## How It Works
+
+### Upload Process
+1. User uploads CSV file via the frontend form
+2. Laravel validates the file type and processes the upload
+3. File is passed to `LocalHomeownerParserService` for parsing
+
+### Parsing Logic
+1. **Row Processing**: Each CSV row is cleaned and analysed
+2. **Multiple People Detection**: Uses regex patterns and title counting to identify multiple people
+3. **Parsing Strategy**:
+   - **Single person**: Direct parsing of title, name/initial, surname
+   - **Multiple people**: Splits by conjunctions ("and", "&") and parses each part
+   - **Surname inheritance**: Handles cases like "Mr & Mrs Smith" where surname is shared
+
+### Data Storage
+1. Parsed data is validated and checked for duplicates
+2. New homeowner records are created using database transactions
+3. Results are returned to the frontend via Inertia.js props
+
+### Error Handling
+- Database transactions ensure data consistency
+- Comprehensive validation prevents invalid data storage
+- Graceful error reporting for failed uploads
+
+## Parser Examples
+
+| Input | Output |
+|-------|--------|
+| `Mr John Smith` | 1 person: Mr John Smith |
+| `Mr and Mrs Smith` | 2 people: Mr Smith, Mrs Smith |
+| `Dr & Mrs Joe Bloggs` | 2 people: Dr Bloggs, Mrs Joe Bloggs |
+| `Mr Tom Staff and Mr John Doe` | 2 people: Mr Tom Staff, Mr John Doe |
+| `Mister John Doe` | 1 person: Mr John Doe (normalised) |
+
+## Architecture
+
+- **Controller**: `UploadController` handles file uploads and responses
+- **Service**: `LocalHomeownerParserService` implements parsing logic
+- **Model**: `Homeowner` represents homeowner data with factory support
+- **Interface**: `HomeownerParserInterface` allows for alternative implementations
+- **Frontend**: Vue.js component with drag-and-drop file upload
+
+## Future Enhancements
+
+If given additional development time, the following features would be implemented:
+
+- **Export functionality**: Download parsed results as CSV/Excel
+- **Review screen**: Post-upload interface for manual corrections and deletions
+- **Batch operations**: Edit multiple homeowners simultaneously
+- **Import history**: Track and manage previous uploads
+- **Advanced validation**: Custom rules for name formats and titles
+- **API endpoints**: RESTful API for external integrations
+- **Static analysis**: PHPStan integration for improved code quality
+- **Performance optimisation**: Chunked processing for large files
+- **Audit logging**: Track all data changes and imports
+
+## Testing Coverage
+
+The application includes comprehensive test coverage:
+- **Unit tests**: Individual parser methods and validation logic
+- **Integration tests**: Full CSV import workflow
+- **Edge cases**: Malformed data, duplicate detection, error handling
+- **Factory support**: Realistic test data generation
