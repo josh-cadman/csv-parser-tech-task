@@ -58,7 +58,7 @@ class LocalHomeownerParserService implements HomeownerParserInterface
 
         foreach ($parseResults as $parsedData) {
             if (! $this->isDuplicateHomeowner($parsedData)) {
-                $createdHomeowners[] = Homeowner::createFromParsedData($parsedData);
+                $createdHomeowners[] = $this->createHomeowner($parsedData);
             } else {
                 $skippedCount++;
             }
@@ -70,6 +70,14 @@ class LocalHomeownerParserService implements HomeownerParserInterface
         }
 
         return $createdHomeowners;
+    }
+
+    /**
+     * Create a homeowner from parsed data
+     */
+    public function createHomeowner(array $parsedData): Homeowner
+    {
+        return Homeowner::createFromParsedData($parsedData);
     }
 
     /**
@@ -122,7 +130,9 @@ class LocalHomeownerParserService implements HomeownerParserInterface
         $cleanedString = $this->cleanupInputString($homeownerString);
 
         if ($this->detectsMultiplePeople($cleanedString)) {
-            return $this->parseMultiplePeople($cleanedString);
+            $result = $this->parseMultiplePeople($cleanedString);
+
+            return $result;
         }
 
         $singlePerson = $this->parseSinglePerson($cleanedString);
@@ -141,9 +151,67 @@ class LocalHomeownerParserService implements HomeownerParserInterface
     }
 
     /**
-     * Detect if string contains multiple people using regex pattern
+     * Detect if string contains multiple people
      */
     private function detectsMultiplePeople(string $homeownerString): bool
+    {
+        if ($this->hasExplicitConjunction($homeownerString)) {
+            return true;
+        }
+
+        if ($this->hasMultipleTitles($homeownerString)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if string has explicit conjunction words
+     */
+    private function hasExplicitConjunction(string $homeownerString): bool
+    {
+        foreach ($this->conjunctions as $conjunction) {
+            if ($conjunction === '&') {
+                // Handle & differently since it doesn't need word boundaries
+                if (strpos($homeownerString, $conjunction) !== false) {
+                    return true;
+                }
+            } else {
+                $pattern = "/\b".preg_quote($conjunction, '/')."\b/i";
+                if (preg_match($pattern, $homeownerString)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if string contains multiple titles
+     */
+    private function hasMultipleTitles(string $homeownerString): bool
+    {
+        $titleCount = 0;
+        $words = explode(' ', $homeownerString);
+
+        foreach ($words as $word) {
+            if ($this->validateTitle($word)) {
+                $titleCount++;
+                if ($titleCount > 1) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if string has title + conjunction pattern
+     */
+    private function hasMultipleTitlesWithConjunction(string $homeownerString): bool
     {
         $pattern = $this->getMultiplePeopleRegexPattern();
 
@@ -152,13 +220,14 @@ class LocalHomeownerParserService implements HomeownerParserInterface
 
     /**
      * Build regex pattern to detect multiple people
+     * Looks for titles with conjunctions to confirm multiple people
      */
     private function getMultiplePeopleRegexPattern(): string
     {
         $titlePattern = $this->getTitleRegexPattern();
         $conjunctionPattern = $this->getConjunctionRegexPattern();
 
-        return "/{$titlePattern}.*?{$conjunctionPattern}.*?({$titlePattern}|(?:{$conjunctionPattern}\s+(?!.*{$titlePattern})))/i";
+        return "/\b{$titlePattern}\b.*?\s{$conjunctionPattern}\s/i";
     }
 
     /**
@@ -166,7 +235,9 @@ class LocalHomeownerParserService implements HomeownerParserInterface
      */
     private function getTitleRegexPattern(): string
     {
-        $quotedTitles = array_map('preg_quote', $this->titles);
+        $quotedTitles = array_map(function ($title) {
+            return preg_quote($title, '/');
+        }, $this->titles);
 
         return '('.implode('|', $quotedTitles).')';
     }
@@ -176,7 +247,9 @@ class LocalHomeownerParserService implements HomeownerParserInterface
      */
     private function getConjunctionRegexPattern(): string
     {
-        $quotedConjunctions = array_map('preg_quote', $this->conjunctions);
+        $quotedConjunctions = array_map(function ($conjunction) {
+            return preg_quote($conjunction, '/');
+        }, $this->conjunctions);
 
         return '('.implode('|', $quotedConjunctions).')';
     }
@@ -186,19 +259,64 @@ class LocalHomeownerParserService implements HomeownerParserInterface
      */
     private function parseMultiplePeople(string $homeownerString): array
     {
+        // First try to find explicit conjunctions
         $conjunction = $this->findConjunctionInString($homeownerString);
 
-        if (! $conjunction) {
-            return [];
+        if ($conjunction) {
+            $parts = $this->splitStringByConjunction($homeownerString, $conjunction);
+
+            if (count($parts) === 2) {
+                return $this->parseTwoPeopleParts(trim($parts[0]), trim($parts[1]));
+            }
+
+            return $this->parseMultipleCompletePeople($parts);
         }
 
-        $parts = $this->splitStringByConjunction($homeownerString, $conjunction);
+        // If no explicit conjunction but multiple titles detected,
+        // try to split by titles
+        return $this->parseMultiplePeopleByTitles($homeownerString);
+    }
 
-        if (count($parts) === 2) {
-            return $this->parseTwoPeopleParts(trim($parts[0]), trim($parts[1]));
+    /**
+     * Parse multiple people by splitting on titles when no explicit conjunction
+     */
+    private function parseMultiplePeopleByTitles(string $homeownerString): array
+    {
+        $people = [];
+        $words = explode(' ', $homeownerString);
+        $currentPerson = [];
+
+        for ($i = 0; $i < count($words); $i++) {
+            $word = $words[$i];
+
+            // Skip conjunctions completely - they're not part of names
+            if (in_array(strtolower($word), array_map('strtolower', $this->conjunctions))) {
+                continue;
+            }
+
+            // If we find a title and we already have words for a person, process the previous person
+            if ($this->validateTitle($word) && ! empty($currentPerson)) {
+                $personString = implode(' ', $currentPerson);
+                $person = $this->parseSinglePerson($personString);
+                if ($person) {
+                    $people[] = $person;
+                }
+                $currentPerson = [$word]; // Start new person with this title
+            } else {
+                $currentPerson[] = $word;
+            }
         }
 
-        return $this->parseMultipleCompletePeople($parts);
+        // Process the last person
+        if (! empty($currentPerson)) {
+            $personString = implode(' ', $currentPerson);
+            $person = $this->parseSinglePerson($personString);
+            if ($person) {
+                $people[] = $person;
+            }
+        }
+
+        return $people;
     }
 
     /**
@@ -207,9 +325,16 @@ class LocalHomeownerParserService implements HomeownerParserInterface
     private function findConjunctionInString(string $text): ?string
     {
         foreach ($this->conjunctions as $conjunction) {
-            $pattern = "/\b".preg_quote($conjunction)."\b/i";
-            if (preg_match($pattern, $text)) {
-                return $conjunction;
+            if ($conjunction === '&') {
+                // Handle & differently since it doesn't need word boundaries
+                if (strpos($text, $conjunction) !== false) {
+                    return $conjunction;
+                }
+            } else {
+                $pattern = "/\b".preg_quote($conjunction)."\b/i";
+                if (preg_match($pattern, $text)) {
+                    return $conjunction;
+                }
             }
         }
 
@@ -221,9 +346,16 @@ class LocalHomeownerParserService implements HomeownerParserInterface
      */
     private function splitStringByConjunction(string $text, string $conjunction): array
     {
-        $pattern = "/\b".preg_quote($conjunction)."\b/i";
+        if ($conjunction === '&') {
+            // Handle & differently since it doesn't need word boundaries
+            return array_filter(explode($conjunction, $text), function ($part) {
+                return ! empty(trim($part));
+            });
+        } else {
+            $pattern = "/\b".preg_quote($conjunction)."\b/i";
 
-        return preg_split($pattern, $text, -1, PREG_SPLIT_NO_EMPTY);
+            return preg_split($pattern, $text, -1, PREG_SPLIT_NO_EMPTY);
+        }
     }
 
     /**
@@ -233,14 +365,45 @@ class LocalHomeownerParserService implements HomeownerParserInterface
     {
         $people = [];
 
-        $firstPerson = $this->parseSinglePerson($firstPart);
-        if ($firstPerson) {
-            $people[] = $firstPerson;
-        }
+        // Parse the second part first (it likely has the full name with surname)
+        $secondPerson = $this->parseSinglePerson($secondPart);
 
-        $secondPerson = $this->parseSecondPersonWithInheritance($secondPart, $firstPerson);
         if ($secondPerson) {
             $people[] = $secondPerson;
+
+            // Now handle the first part - it might be title-only needing surname inheritance
+            if ($this->containsOnlyTitle($firstPart)) {
+                // Create first person with inherited surname from second person
+                $firstPerson = $this->createPersonWithInheritedSurname($firstPart, $secondPerson);
+                if ($firstPerson) {
+                    // Insert at the beginning to maintain order
+                    array_unshift($people, $firstPerson);
+                }
+            } else {
+                // Try to parse first part normally
+                $firstPerson = $this->parseSinglePerson($firstPart);
+
+                if ($firstPerson) {
+                    // If first person has no surname but second person does, inherit it
+                    if (empty($firstPerson['last_name']) && ! empty($secondPerson['last_name'])) {
+                        $firstPerson['last_name'] = $secondPerson['last_name'];
+                    }
+                    array_unshift($people, $firstPerson);
+                } else {
+                    // If first part couldn't be parsed normally, try to create with inherited surname
+                    // This handles cases like "Dr & Mrs Joe Bloggs" where "Dr" alone isn't valid
+                    $words = explode(' ', $firstPart);
+                    if (count($words) > 0 && $this->validateTitle($words[0])) {
+                        $firstPersonWithInheritance = [
+                            'title' => $this->normaliseTitle($words[0]),
+                            'first_name' => null,
+                            'initial' => null,
+                            'last_name' => $secondPerson['last_name'],
+                        ];
+                        array_unshift($people, $firstPersonWithInheritance);
+                    }
+                }
+            }
         }
 
         return array_filter($people);
